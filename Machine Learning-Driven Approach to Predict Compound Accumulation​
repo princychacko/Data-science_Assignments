@@ -1,0 +1,328 @@
+import pandas as pd
+import numpy as np
+from scipy import stats
+
+# Load the dataset (corrected: use read_csv since it's comma-separated)
+df = pd.read_csv('chem452_accum_properties.txt')
+
+print(df.shape)
+# Step 1: Remove duplicate rows
+df = df.drop_duplicates()
+
+# Step 2: Drop rows with missing values
+df = df.dropna()
+
+# Step 3: Remove outliers using Z-score method (threshold = 3)
+# Only apply to numeric columns
+numeric_cols = df.select_dtypes(include=[np.number]).columns
+z_scores = np.abs(stats.zscore(df[numeric_cols]))
+df = df[(z_scores < 3).all(axis=1)]
+df.reset_index(drop=True, inplace=True)
+
+print(df.shape)
+import pandas as pd
+import seaborn as sns
+import matplotlib.pyplot as plt
+
+# -----------------------------
+# 1. Compute Spearman correlation matrix
+# -----------------------------
+corr = df.drop(columns=["SMILES"]).corr(method="pearson")
+
+# -----------------------------
+# 2. Plot heatmap
+# -----------------------------
+plt.figure(figsize=(14,12))
+filtered_corr = corr.drop(index=["Accumulation P. aeruginosa PAO1", "Accumulation E. coli"],
+                          columns=["Accumulation P. aeruginosa PAO1", "Accumulation E. coli"])
+
+sns.heatmap(filtered_corr, cmap="coolwarm", center=0)
+
+
+plt.title("Spearman Correlation Heatmap", fontsize=16)
+plt.show()
+
+# -----------------------------
+# 3. Extract correlations with accumulation targets
+# Drop both self-correlation and the other accumulation target
+corr_pseudo = corr["Accumulation P. aeruginosa PAO1"].drop(
+    ["Accumulation P. aeruginosa PAO1", "Accumulation E. coli"]
+)
+
+corr_ecoli = corr["Accumulation E. coli"].drop(
+    ["Accumulation E. coli", "Accumulation P. aeruginosa PAO1"]
+)
+
+# -----------------------------
+# 4. Get Top 10 features for each target
+# -----------------------------
+top10_pseudo = corr_pseudo.abs().sort_values(ascending=False).head(10)
+top10_ecoli = corr_ecoli.abs().sort_values(ascending=False).head(10)
+
+print("Top 10 features correlated with P. aeruginosa accumulation (Spearman):")
+print(top10_pseudo)
+
+print("\nTop 10 features correlated with E. coli accumulation (Spearman):")
+print(top10_ecoli)
+import pandas as pd
+import seaborn as sns
+import matplotlib.pyplot as plt
+
+# -----------------------------
+# 1. Compute Spearman correlation matrix
+# -----------------------------
+corr = df.drop(columns=["SMILES"]).corr(method="spearman")
+
+# -----------------------------
+# 2. Plot heatmap
+# -----------------------------
+plt.figure(figsize=(14,12))
+filtered_corr = corr.drop(index=["Accumulation P. aeruginosa PAO1", "Accumulation E. coli"],
+                          columns=["Accumulation P. aeruginosa PAO1", "Accumulation E. coli"])
+
+sns.heatmap(filtered_corr, cmap="coolwarm", center=0)
+plt.title("pearson Correlation Heatmap", fontsize=16)
+plt.show()
+
+# -----------------------------
+# 3. Extract correlations with accumulation targets
+# Drop both self-correlation and the other accumulation target
+corr_pseudo = corr["Accumulation P. aeruginosa PAO1"].drop(
+    ["Accumulation P. aeruginosa PAO1", "Accumulation E. coli"]
+)
+
+corr_ecoli = corr["Accumulation E. coli"].drop(
+    ["Accumulation E. coli", "Accumulation P. aeruginosa PAO1"]
+)
+
+# -----------------------------
+# 4. Get Top 10 features for each target
+# -----------------------------
+top10_pseudo = corr_pseudo.abs().sort_values(ascending=False).head(10)
+top10_ecoli = corr_ecoli.abs().sort_values(ascending=False).head(10)
+
+print("Top 10 features correlated with P. aeruginosa accumulation (pearson):")
+print(top10_pseudo)
+
+print("\nTop 10 features correlated with E. coli accumulation (pearson):")
+print(top10_ecoli)
+
+# Computing Spearman correlations and comparing top features for P. aeruginosa and E. coli
+
+
+# Create comparison table
+comparison_df = pd.DataFrame({
+    "Feature": top10_pseudo.index.union(top10_ecoli.index),
+    "Spearman_Pseudo": corr_pseudo[top10_pseudo.index.union(top10_ecoli.index)],
+    "Spearman_Ecoli": corr_ecoli[top10_pseudo.index.union(top10_ecoli.index)]
+}).set_index("Feature")
+
+# Highlight overlapping features
+overlap_features = top10_pseudo.index.intersection(top10_ecoli.index).tolist()
+
+# Save results
+comparison_df.to_csv("new.csv")
+
+print(f"Generated Spearman correlation comparison for top 10 features in P. aeruginosa and E. coli.")
+print(f"Overlapping top features: {', '.join(overlap_features)}")
+print("Saved comparison table as spearman_top10_comparison.csv")
+# Imports
+import numpy as np
+import matplotlib.pyplot as plt
+from sklearn.model_selection import train_test_split, RandomizedSearchCV
+from sklearn.ensemble import RandomForestRegressor
+from sklearn.preprocessing import StandardScaler
+from sklearn.metrics import r2_score, mean_squared_error
+import warnings
+from sklearn.exceptions import FitFailedWarning
+
+
+# -----------------------------
+# 1. Select combined features
+# -----------------------------
+combined_features = [
+    "a_nO", "a_base", "a_aro", "h_pavgQ", "a_nN", "a_acc",
+    "ASA", "ASA_H", "a_hyd", "h_logP", "h_logD", "h_logS", "h_pKa"
+]
+
+X = df[combined_features]
+y = df["Accumulation P. aeruginosa PAO1"]
+y_log = np.log1p(y)
+
+# -----------------------------
+# 2. Train-test split
+# -----------------------------
+X_train, X_test, y_train, y_test = train_test_split(
+    X, y_log, test_size=0.2, random_state=42
+)
+
+# -----------------------------
+# 3. Scale features
+# -----------------------------
+scaler = StandardScaler()
+X_train_scaled = scaler.fit_transform(X_train)
+X_test_scaled = scaler.transform(X_test)
+
+# -----------------------------
+# 4. Define parameter grid
+# -----------------------------
+param_dist = {
+    "n_estimators": [100, 300, 500, 800],
+    "max_depth": [None, 10, 20, 30],
+    "min_samples_split": [2, 5, 10],
+    "min_samples_leaf": [1, 2, 4],
+    "max_features": ["auto", "sqrt", 0.5]
+}
+
+# -----------------------------
+# 5. Run RandomizedSearchCV
+# -----------------------------
+rf = RandomForestRegressor(random_state=42)
+search = RandomizedSearchCV(
+    rf,
+    param_distributions=param_dist,
+    n_iter=30,
+    cv=5,
+    scoring="r2",
+    random_state=42,
+    n_jobs=-1
+)
+with warnings.catch_warnings():
+    warnings.simplefilter("ignore", FitFailedWarning)
+    search.fit(X_train_scaled, y_train)
+
+
+# -----------------------------
+# 6. Evaluate best model
+# -----------------------------
+best_rf = search.best_estimator_
+y_pred_log = best_rf.predict(X_test_scaled)
+
+print("Best Parameters:", search.best_params_)
+print("R² (log target):", r2_score(y_test, y_pred_log))
+rmse_log = np.sqrt(mean_squared_error(y_test, y_pred_log))
+print("RMSE (log target):", rmse_log)
+
+# Back-transform predictions
+y_pred = np.expm1(y_pred_log)
+y_true = np.expm1(y_test)
+rmse_original = np.sqrt(mean_squared_error(y_true, y_pred))
+print("RMSE (original scale):", rmse_original)
+
+# -----------------------------
+# 7. Feature Importance Plot
+# -----------------------------
+importances = best_rf.feature_importances_
+indices = np.argsort(importances)[::-1]
+
+plt.figure(figsize=(10,6))
+plt.bar(range(len(combined_features)), importances[indices])
+plt.xticks(range(len(combined_features)),
+           [combined_features[i] for i in indices],
+           rotation=45)
+plt.title("Optimized RF Feature Importance (Combined Top Descriptors)")
+plt.tight_layout()
+plt.show()
+# Imports
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+import seaborn as sns
+from sklearn.model_selection import train_test_split, RandomizedSearchCV
+from sklearn.ensemble import RandomForestRegressor
+from sklearn.preprocessing import StandardScaler
+from sklearn.metrics import r2_score, mean_squared_error
+import warnings
+from sklearn.exceptions import FitFailedWarning
+
+
+# -----------------------------
+# 1. Define combined top features
+# -----------------------------
+combined_features = [
+    "a_nO", "a_base", "a_aro", "h_pavgQ", "a_nN", "a_acc",
+    "ASA", "ASA_H", "a_hyd", "h_logP", "h_logD", "h_logS", "h_pKa"
+]
+
+X = df[combined_features]
+y = df["Accumulation E. coli"]
+y_log = np.log1p(y)  # log-transform target
+
+# -----------------------------
+# 2. Train-test split
+# -----------------------------
+X_train, X_test, y_train, y_test = train_test_split(
+    X, y_log, test_size=0.2, random_state=42
+)
+
+# -----------------------------
+# 3. Scale features
+# -----------------------------
+scaler = StandardScaler()
+X_train_scaled = scaler.fit_transform(X_train)
+X_test_scaled = scaler.transform(X_test)
+
+# -----------------------------
+# 4. Define hyperparameter grid
+# -----------------------------
+param_dist = {
+    "n_estimators": [100, 300, 500, 800],
+    "max_depth": [None, 10, 20, 30],
+    "min_samples_split": [2, 5, 10],
+    "min_samples_leaf": [1, 2, 4],
+    "max_features": ["auto", "sqrt", 0.5]
+}
+
+# -----------------------------
+# 5. RandomizedSearchCV
+# -----------------------------
+rf = RandomForestRegressor(random_state=42)
+search = RandomizedSearchCV(
+    rf,
+    param_distributions=param_dist,
+    n_iter=30,
+    cv=5,
+    scoring="r2",
+    random_state=42,
+    n_jobs=-1
+)
+with warnings.catch_warnings():
+    warnings.simplefilter("ignore", FitFailedWarning)
+    search.fit(X_train_scaled, y_train)
+
+# -----------------------------
+# 6. Evaluate best model
+# -----------------------------
+best_rf = search.best_estimator_
+y_pred_log = best_rf.predict(X_test_scaled)
+
+print("Best Parameters:", search.best_params_)
+print("R² (log target):", r2_score(y_test, y_pred_log))
+rmse_log = np.sqrt(mean_squared_error(y_test, y_pred_log))
+print("RMSE (log target):", rmse_log)
+
+# Back-transform predictions
+y_pred = np.expm1(y_pred_log)
+y_true = np.expm1(y_test)
+rmse_original = np.sqrt(mean_squared_error(y_true, y_pred))
+print("RMSE (original scale):", rmse_original)
+
+# -----------------------------
+# 7. Feature Importance Plot (Top 3)
+# -----------------------------
+importances = best_rf.feature_importances_
+importance_df = pd.DataFrame({
+    'Feature': combined_features,
+    'Importance': importances
+})
+
+top3_df = importance_df.sort_values(by='Importance', ascending=False).head(3)
+
+plt.figure(figsize=(6, 4))
+sns.barplot(x='Importance', y='Feature', data=top3_df, color='skyblue')
+plt.title('Top 3 Most Important Features for E. coli Accumulation')
+plt.xlabel('Feature Importance')
+plt.ylabel('Feature')
+plt.tight_layout()
+plt.show()
+
